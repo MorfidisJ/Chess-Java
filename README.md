@@ -112,7 +112,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Start Alpha-Beta] --> B[Initialize Alpha = -∞, Beta = +∞]
+    A[Start Alpha-Beta] --> B[Initialize Alpha = -inf, Beta = +inf]
     B --> C[Generate Moves]
     C --> D[Sort Moves by Priority]
     D --> E[Make Move]
@@ -120,9 +120,9 @@ flowchart TD
     F --> G{Maximizing Player?}
     G -->|Yes| H[Update Alpha]
     G -->|No| I[Update Beta]
-    H --> J[Alpha = max(Alpha, Score)]
-    I --> K[Beta = min(Beta, Score)]
-    J --> L{Beta ≤ Alpha?}
+    H --> J[Alpha = max Alpha Score]
+    I --> K[Beta = min Beta Score]
+    J --> L{Beta <= Alpha?}
     K --> L
     L -->|Yes| M[Prune Branch]
     L -->|No| N{More Moves?}
@@ -144,8 +144,8 @@ flowchart TD
     D -->|Yes| F{Flag Type?}
     D -->|No| E
     F -->|EXACT| G[Return Cached Score]
-    F -->|ALPHA| H{Score ≤ Alpha?}
-    F -->|BETA| I{Score ≥ Beta?}
+    F -->|ALPHA| H{Score <= Alpha?}
+    F -->|BETA| I{Score >= Beta?}
     H -->|Yes| G
     H -->|No| E
     I -->|Yes| G
@@ -235,7 +235,6 @@ chess/
 ├── ChessBoard.java     # Board logic and rules
 ├── ChessAI.java        # AI engine
 ├── README.md          # This file
-└── .gitignore         # Git ignore file
 ```
 
 ## 🔧 Technical Details
