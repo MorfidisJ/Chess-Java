@@ -10,6 +10,8 @@ A Java-based chess game featuring a sophisticated AI opponent with advanced sear
 - **Move Validation**: Real-time move validation and legal move highlighting
 - **Game State Detection**: Checkmate, stalemate, and draw detection
 - **Difficulty Levels**: 5 difficulty levels (Easy to Master)
+- **Color Selection**: Choose to play as White or Black
+- **One-Time Setup**: Color and difficulty locked once game starts
 
 ### AI Features
 - **Alpha-Beta Pruning**: Efficient search tree exploration
@@ -26,7 +28,7 @@ A Java-based chess game featuring a sophisticated AI opponent with advanced sear
 ChessGame.java          - Main GUI and game controller
 ├── ChessBoard.java     - Board representation and game logic
 ├── ChessAI.java        - AI engine with advanced algorithms
-├── ChessPiece.java     - Piece representation and behavior
+└── ChessPiece.java     - Piece representation and behavior
 ```
 
 ### Key Components
@@ -36,6 +38,7 @@ ChessGame.java          - Main GUI and game controller
 - Handles user interactions
 - Coordinates game flow
 - Displays game status and controls
+- Manages color selection and game setup
 
 #### 2. ChessBoard (Game Logic)
 - Board state representation
@@ -53,22 +56,27 @@ ChessGame.java          - Main GUI and game controller
 
 ```mermaid
 flowchart TD
-    A[Start Game] --> B[Initialize Board]
-    B --> C[Display Board]
-    C --> D{Player's Turn?}
-    D -->|Yes| E[Wait for Player Move]
-    D -->|No| F[AI Calculate Move]
-    E --> G[Validate Move]
-    G -->|Invalid| E
-    G -->|Valid| H[Execute Move]
-    F --> I[Alpha-Beta Search]
-    I --> J[Select Best Move]
-    J --> H
-    H --> K[Update Board]
-    K --> L{Game Over?}
-    L -->|No| D
-    L -->|Yes| M[Display Result]
-    M --> N[End Game]
+    A[Launch Game] --> B[Setup Phase]
+    B --> C[Choose Color: White/Black]
+    B --> D[Choose Difficulty: Easy to Master]
+    C --> E[Click Start Game]
+    D --> E
+    E --> F[Game Begins]
+    F --> G{Player's Turn?}
+    G -->|Yes| H[Wait for Player Move]
+    G -->|No| I[AI Calculate Move]
+    H --> J[Validate Move]
+    J -->|Invalid| H
+    J -->|Valid| K[Execute Move]
+    I --> L[Alpha-Beta Search]
+    L --> M[Select Best Move]
+    M --> K
+    K --> N[Update Board]
+    N --> O{Game Over?}
+    O -->|No| G
+    O -->|Yes| P[Display Result]
+    P --> Q[Click New Game to Reset]
+    Q --> B
 ```
 
 ## 🧠 AI Algorithm Flow
@@ -205,9 +213,15 @@ The AI evaluates positions using multiple factors:
 ## 🎮 How to Play
 
 ### Starting the Game
-1. Run `ChessGame.java`
-2. You play as **White** (bottom pieces)
-3. Computer plays as **Black** (top pieces)
+1. **Run** `ChessGame.java`
+2. **Choose Color**: Select "White" or "Black" from the dropdown
+3. **Choose Difficulty**: Select from Easy (1) to Master (5)
+4. **Click "Start Game"**: Begin the chess match
+
+### Color Selection
+- **White**: Play as White pieces (bottom), move first (traditional)
+- **Black**: Play as Black pieces (top), AI moves first
+- **Locked Choice**: Color cannot be changed once game starts
 
 ### Making Moves
 1. **Click** on a piece to select it
@@ -224,8 +238,9 @@ The AI evaluates positions using multiple factors:
 - **Master (5)**: Depth 5 - Maximum challenge
 
 ### Game Controls
-- **New Game**: Reset the board and start over
-- **Difficulty**: Adjust AI strength before or during play
+- **Start Game**: Begin the match with current settings
+- **New Game**: Reset to setup phase for new choices
+- **Settings Locked**: Color and difficulty cannot be changed during gameplay
 
 ## 📁 File Structure
 
@@ -234,7 +249,7 @@ chess/
 ├── ChessGame.java      # Main game interface
 ├── ChessBoard.java     # Board logic and rules
 ├── ChessAI.java        # AI engine
-├── README.md          # This file
+└── README.md           # This file
 ```
 
 ## 🔧 Technical Details

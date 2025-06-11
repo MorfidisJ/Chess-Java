@@ -16,6 +16,9 @@ public class ChessGame extends JFrame {
     private ChessAI ai;
     private int aiDepth = 3; 
     private JComboBox<String> difficultyCombo;
+    private PieceColor playerColor = PieceColor.WHITE; // Default to white
+    private JComboBox<String> colorCombo;
+    private boolean gameStarted = false; // Track if game has started
     
     public ChessGame() {
         setTitle("Chess Game - Player vs Computer");
@@ -37,12 +40,12 @@ public class ChessGame extends JFrame {
     private void initializeGUI() {
         setLayout(new BorderLayout());
         
-       
-        statusLabel = new JLabel("White's turn (Your turn)", JLabel.CENTER);
+        // Status panel
+        statusLabel = new JLabel("Choose your color and click 'Start Game'", JLabel.CENTER);
         statusLabel.setFont(new Font("Arial", Font.BOLD, 16));
         add(statusLabel, BorderLayout.NORTH);
         
-       
+        // Chess board panel
         JPanel boardPanel = new JPanel(new GridLayout(BOARD_SIZE, BOARD_SIZE));
         boardPanel.setPreferredSize(new Dimension(BOARD_SIZE * SQUARE_SIZE, BOARD_SIZE * SQUARE_SIZE));
         
@@ -53,11 +56,11 @@ public class ChessGame extends JFrame {
                 square.setFont(new Font("Arial Unicode MS", Font.PLAIN, 40));
                 square.setFocusPainted(false);
                 
-                
+                // Checkerboard pattern
                 if ((row + col) % 2 == 0) {
-                    square.setBackground(new Color(245, 222, 179)); 
+                    square.setBackground(new Color(245, 222, 179)); // Light beige for white squares
                 } else {
-                    square.setBackground(new Color(139, 69, 19)); 
+                    square.setBackground(new Color(139, 69, 19)); // Brown for black squares
                 }
                 
                 final int r = row, c = col;
@@ -70,48 +73,99 @@ public class ChessGame extends JFrame {
         
         add(boardPanel, BorderLayout.CENTER);
         
-      
+        // Control panel
         JPanel controlPanel = new JPanel(new FlowLayout());
+        
+        JButton startButton = new JButton("Start Game");
+        startButton.addActionListener(e -> startGame());
+        controlPanel.add(startButton);
         
         JButton resetButton = new JButton("New Game");
         resetButton.addActionListener(e -> resetGame());
         controlPanel.add(resetButton);
         
+        // Color selector
+        controlPanel.add(new JLabel("Play as:"));
+        String[] colors = {"White", "Black"};
+        colorCombo = new JComboBox<>(colors);
+        colorCombo.setSelectedIndex(0); // Default to White
+        colorCombo.addActionListener(e -> updateColor());
+        controlPanel.add(colorCombo);
         
+        // Difficulty selector
         controlPanel.add(new JLabel("Difficulty:"));
         String[] difficulties = {"Easy (1)", "Medium (2)", "Hard (3)", "Expert (4)", "Master (5)"};
         difficultyCombo = new JComboBox<>(difficulties);
-        difficultyCombo.setSelectedIndex(2); 
+        difficultyCombo.setSelectedIndex(2); // Default to Hard
         difficultyCombo.addActionListener(e -> updateDifficulty());
         controlPanel.add(difficultyCombo);
         
         add(controlPanel, BorderLayout.SOUTH);
     }
     
+    private void startGame() {
+        gameStarted = true;
+        colorCombo.setEnabled(false); // Disable color selection
+        difficultyCombo.setEnabled(false); // Disable difficulty changes during game
+        
+        playerColor = colorCombo.getSelectedIndex() == 0 ? PieceColor.WHITE : PieceColor.BLACK;
+        playerTurn = (playerColor == PieceColor.WHITE); // White always starts
+        
+        if (playerColor == PieceColor.WHITE) {
+            statusLabel.setText("White's turn (Your turn)");
+        } else {
+            statusLabel.setText("Black's turn (Your turn)");
+        }
+        
+        // If player chose Black, AI moves first
+        if (playerColor == PieceColor.BLACK) {
+            playerTurn = false;
+            statusLabel.setText("Computer's turn...");
+            // Computer move after a short delay
+            javax.swing.Timer timer = new javax.swing.Timer(1000, e -> makeComputerMove());
+            timer.setRepeats(false);
+            timer.start();
+        }
+    }
+    
+    private void updateColor() {
+        if (!gameStarted) {
+            // Only update status if game hasn't started yet
+            playerColor = colorCombo.getSelectedIndex() == 0 ? PieceColor.WHITE : PieceColor.BLACK;
+            if (playerColor == PieceColor.WHITE) {
+                statusLabel.setText("Choose your color and click 'Start Game' (You'll play as White)");
+            } else {
+                statusLabel.setText("Choose your color and click 'Start Game' (You'll play as Black)");
+            }
+        }
+    }
+    
     private void updateDifficulty() {
-        aiDepth = difficultyCombo.getSelectedIndex() + 1;
-        statusLabel.setText("Difficulty set to: " + difficultyCombo.getSelectedItem());
+        if (!gameStarted) {
+            aiDepth = difficultyCombo.getSelectedIndex() + 1;
+            statusLabel.setText("Difficulty set to: " + difficultyCombo.getSelectedItem() + " - Click 'Start Game' to begin");
+        }
     }
     
     private void handleSquareClick(int row, int col) {
-        if (!playerTurn) return;
+        if (!gameStarted || !playerTurn) return;
         
         if (selectedSquare == null) {
-           
+            // Select a piece
             ChessPiece piece = board.getPiece(row, col);
-            if (piece != null && piece.color == PieceColor.WHITE) {
+            if (piece != null && piece.color == playerColor) {
                 selectedSquare = new Point(row, col);
                 highlightSquare(row, col, Color.YELLOW);
                 showPossibleMoves(row, col);
             }
         } else {
-            
+            // Try to move the selected piece
             if (selectedSquare.x == row && selectedSquare.y == col) {
-                
+                // Clicking the same square - deselect
                 clearHighlights();
                 selectedSquare = null;
             } else {
-                
+                // Try to make a move
                 Move move = new Move(selectedSquare.x, selectedSquare.y, row, col);
                 if (board.isValidMove(move)) {
                     board.makeMove(move);
@@ -119,9 +173,11 @@ public class ChessGame extends JFrame {
                     clearHighlights();
                     selectedSquare = null;
                     playerTurn = false;
+                    
+                    PieceColor aiColor = (playerColor == PieceColor.WHITE) ? PieceColor.BLACK : PieceColor.WHITE;
                     statusLabel.setText("Computer's turn...");
                     
-                    if (board.isCheckmate(PieceColor.BLACK)) {
+                    if (board.isCheckmate(aiColor)) {
                         statusLabel.setText("Checkmate! You win!");
                         return;
                     }
@@ -131,7 +187,7 @@ public class ChessGame extends JFrame {
                         return;
                     }
                     
-                   
+                    // Computer move after a short delay
                     javax.swing.Timer timer = new javax.swing.Timer(1000, e -> makeComputerMove());
                     timer.setRepeats(false);
                     timer.start();
@@ -144,12 +200,13 @@ public class ChessGame extends JFrame {
     }
     
     private void makeComputerMove() {
-        Move computerMove = ai.findBestMove(board, PieceColor.BLACK, aiDepth);
+        PieceColor aiColor = (playerColor == PieceColor.WHITE) ? PieceColor.BLACK : PieceColor.WHITE;
+        Move computerMove = ai.findBestMove(board, aiColor, aiDepth);
         if (computerMove != null) {
             board.makeMove(computerMove);
             updateBoard();
             
-            if (board.isCheckmate(PieceColor.WHITE)) {
+            if (board.isCheckmate(playerColor)) {
                 statusLabel.setText("Checkmate! Computer wins!");
                 return;
             }
@@ -160,7 +217,11 @@ public class ChessGame extends JFrame {
             }
             
             playerTurn = true;
-            statusLabel.setText("White's turn (Your turn)");
+            if (playerColor == PieceColor.WHITE) {
+                statusLabel.setText("White's turn (Your turn)");
+            } else {
+                statusLabel.setText("Black's turn (Your turn)");
+            }
         }
     }
     
@@ -224,8 +285,13 @@ public class ChessGame extends JFrame {
     private void resetGame() {
         board = new ChessBoard();
         selectedSquare = null;
-        playerTurn = true;
-        statusLabel.setText("White's turn (Your turn)");
+        gameStarted = false; // Reset game state
+        
+        // Re-enable controls for new game
+        colorCombo.setEnabled(true);
+        difficultyCombo.setEnabled(true);
+        
+        statusLabel.setText("Choose your color and click 'Start Game'");
         clearHighlights();
         updateBoard();
     }

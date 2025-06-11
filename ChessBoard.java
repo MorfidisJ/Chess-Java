@@ -20,13 +20,13 @@ public class ChessBoard implements Cloneable {
     }
     
     private void setupBoard() {
-        // Place pawns
+        
         for (int col = 0; col < 8; col++) {
             board[1][col] = new ChessPiece(PieceType.PAWN, PieceColor.BLACK);
             board[6][col] = new ChessPiece(PieceType.PAWN, PieceColor.WHITE);
         }
         
-        // Place other pieces
+        
         PieceType[] backRow = {PieceType.ROOK, PieceType.KNIGHT, PieceType.BISHOP, PieceType.QUEEN,
                               PieceType.KING, PieceType.BISHOP, PieceType.KNIGHT, PieceType.ROOK};
         
@@ -53,22 +53,22 @@ public class ChessBoard implements Cloneable {
         ChessPiece target = getPiece(move.toRow, move.toCol);
         if (target != null && target.color == piece.color) return false;
         
-        // Check if move would put own king in check
+       
         if (wouldMoveExposeKing(piece.color, move)) return false;
         
         return isValidMoveForPiece(piece, move);
     }
     
     private boolean wouldMoveExposeKing(PieceColor color, Move move) {
-        // Make temporary move
+        
         ChessPiece captured = board[move.toRow][move.toCol];
         board[move.toRow][move.toCol] = board[move.fromRow][move.fromCol];
         board[move.fromRow][move.fromCol] = null;
         
-        // Check if king is in check
+        
         boolean inCheck = isKingInCheck(color);
         
-        // Undo move
+        
         board[move.fromRow][move.fromCol] = board[move.toRow][move.toCol];
         board[move.toRow][move.toCol] = captured;
         
@@ -111,7 +111,7 @@ public class ChessBoard implements Cloneable {
         int rowDiff = move.toRow - move.fromRow;
         int colDiff = move.toCol - move.fromCol;
         
-        // Can't move to same square
+        
         if (rowDiff == 0 && colDiff == 0) return false;
         
         switch (piece.type) {
@@ -136,23 +136,23 @@ public class ChessBoard implements Cloneable {
     private boolean isValidPawnMove(ChessPiece piece, Move move, int rowDiff, int colDiff) {
         int direction = piece.color == PieceColor.WHITE ? -1 : 1;
         
-        // Forward move (no capture)
+        
         if (colDiff == 0 && getPiece(move.toRow, move.toCol) == null) {
-            // Single step forward
+            
             if (rowDiff == direction) {
                 return true;
             }
-            // Initial double move
+            
             if (rowDiff == 2 * direction) {
                 if ((piece.color == PieceColor.WHITE && move.fromRow == 6) || 
                     (piece.color == PieceColor.BLACK && move.fromRow == 1)) {
-                    // Check if path is clear
+                    
                     int middleRow = move.fromRow + direction;
                     return getPiece(middleRow, move.fromCol) == null;
                 }
             }
         }
-        // Diagonal capture
+        
         else if (Math.abs(colDiff) == 1 && rowDiff == direction) {
             ChessPiece target = getPiece(move.toRow, move.toCol);
             return target != null && target.color != piece.color;
@@ -215,10 +215,10 @@ public class ChessBoard implements Cloneable {
     }
     
     public boolean isDraw() {
-        // Check for insufficient material
+        
         if (hasInsufficientMaterial()) return true;
         
-        // Check for stalemate
+        
         if (isStalemate(PieceColor.WHITE) || isStalemate(PieceColor.BLACK)) return true;
         
         return false;
@@ -249,10 +249,10 @@ public class ChessBoard implements Cloneable {
             }
         }
         
-        // King vs King
+        
         if (whitePieces == 1 && blackPieces == 1) return true;
         
-        // King and Bishop/Knight vs King
+        
         if ((whitePieces == 2 && blackPieces == 1) || (whitePieces == 1 && blackPieces == 2)) {
             if (!whiteHasPawn && !blackHasPawn && !whiteHasRook && !blackHasRook && 
                 !whiteHasQueen && !blackHasQueen) {
@@ -266,7 +266,7 @@ public class ChessBoard implements Cloneable {
     public String getFEN() {
         StringBuilder fen = new StringBuilder();
         
-        // Board position
+        
         for (int row = 0; row < 8; row++) {
             int emptyCount = 0;
             for (int col = 0; col < 8; col++) {
