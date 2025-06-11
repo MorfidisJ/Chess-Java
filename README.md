@@ -27,7 +27,6 @@ ChessGame.java          - Main GUI and game controller
 ├── ChessBoard.java     - Board representation and game logic
 ├── ChessAI.java        - AI engine with advanced algorithms
 ├── ChessPiece.java     - Piece representation and behavior
-└── Move.java          - Move representation
 ```
 
 ### Key Components
