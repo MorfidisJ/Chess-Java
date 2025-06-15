@@ -28,10 +28,9 @@ A Java-based chess game featuring a sophisticated AI opponent with advanced sear
 ### Core Classes
 
 ```
-ChessGame.java          - Main GUI and game controller
+├──  ChessGame.java          - Main GUI and game controller
 ├── ChessBoard.java     - Board representation and game logic
-├── ChessAI.java        - AI engine with advanced algorithms
-└── ChessPiece.java     - Piece representation and behavior
+└── ChessAI.java        - AI engine with advanced algorithms
 ```
 
 ### Key Components
