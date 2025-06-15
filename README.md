@@ -12,6 +12,9 @@ A Java-based chess game featuring a sophisticated AI opponent with advanced sear
 - **Difficulty Levels**: 5 difficulty levels (Easy to Master)
 - **Color Selection**: Choose to play as White or Black
 - **One-Time Setup**: Color and difficulty locked once game starts
+- **Castling**: Full castling support (kingside and queenside) with clear visual indicators
+- **Pawn Promotion**: Automatic promotion dialog for human players, AI always promotes to Queen
+- **En Passant**: Full en passant capture implementation with visual state tracking
 
 ### AI Features
 - **Alpha-Beta Pruning**: Efficient search tree exploration
@@ -228,7 +231,62 @@ The AI evaluates positions using multiple factors:
 2. **Valid moves** will be highlighted:
    - 🟢 Green: Regular moves
    - 🔴 Red: Capture moves
+   - 🔵 Blue: Castling moves
 3. **Click** on a highlighted square to make the move
+
+### Special Moves
+
+#### **Castling**
+Castling is a special move that allows you to move your king and rook simultaneously:
+
+**Kingside Castling (O-O)**
+- Move king from e1 to g1 (White) or e8 to g8 (Black)
+- Rook moves from h1 to f1 (White) or h8 to f8 (Black)
+- **Requirements**: King and kingside rook must not have moved, no pieces between them, king not in check
+
+**Queenside Castling (O-O-O)**
+- Move king from e1 to c1 (White) or e8 to c8 (Black)
+- Rook moves from a1 to d1 (White) or a8 to d8 (Black)
+- **Requirements**: King and queenside rook must not have moved, no pieces between them, king not in check
+
+**Castling Rules**
+- King must not be in check
+- King must not pass through check
+- King and rook must be on their original squares
+- No pieces between king and rook
+- King and rook must not have moved previously
+
+#### **Pawn Promotion**
+When a pawn reaches the opposite end of the board, it must be promoted to a more powerful piece:
+
+**Human Players**
+- A dialog appears allowing you to choose: Knight, Bishop, or Queen
+- Click on your desired piece to complete the promotion
+- **Note**: Rook promotion is not available (standard chess rule)
+
+**AI Players**
+- AI automatically promotes pawns to Queens (strongest piece)
+- No dialog interruption during AI moves
+
+#### **En Passant**
+En passant is a special pawn capture that can occur when a pawn moves two squares forward:
+
+**How It Works**
+- When a pawn moves two squares forward (from starting position)
+- An opponent's pawn on an adjacent file can capture it "en passant"
+- The capture is made as if the pawn had only moved one square
+- This opportunity is only available on the very next move
+
+**Visual Indicators**
+- En passant opportunities are highlighted with red squares
+- The captured pawn is automatically removed from the board
+- Debug information shows en passant state for troubleshooting
+
+**Example Scenario**
+1. White pawn on e2 moves to e4
+2. Black pawn on d4 can capture en passant by moving to e3
+3. White pawn on e4 is removed from the board
+4. Black pawn now occupies e3
 
 ### Difficulty Levels
 - **Easy (1)**: Depth 1 - Good for beginners
