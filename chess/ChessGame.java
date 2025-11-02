@@ -1,3 +1,5 @@
+package chess;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -153,7 +155,7 @@ public class ChessGame extends JFrame {
         if (selectedSquare == null) {
             
             ChessPiece piece = board.getPiece(row, col);
-            if (piece != null && piece.color == playerColor) {
+            if (piece != null && piece.getColor() == playerColor) {
                 selectedSquare = new Point(row, col);
                 highlightSquare(row, col, Color.YELLOW);
                 showPossibleMoves(row, col);
@@ -171,9 +173,9 @@ public class ChessGame extends JFrame {
                 
                 ChessPiece selectedPiece = board.getPiece(selectedSquare.x, selectedSquare.y);
                 boolean isPawnPromotion = selectedPiece != null && 
-                                        selectedPiece.type == PieceType.PAWN && 
-                                        ((selectedPiece.color == PieceColor.WHITE && row == 0) ||
-                                         (selectedPiece.color == PieceColor.BLACK && row == 7));
+                                        selectedPiece.getType() == PieceType.PAWN && 
+                                        ((selectedPiece.getColor() == PieceColor.WHITE && row == 0) ||
+                                         (selectedPiece.getColor() == PieceColor.BLACK && row == 7));
                 
                 if (board.isValidMove(move)) {
                     if (isPawnPromotion) {
@@ -267,7 +269,9 @@ public class ChessGame extends JFrame {
     
     private void makeComputerMove() {
         PieceColor aiColor = (playerColor == PieceColor.WHITE) ? PieceColor.BLACK : PieceColor.WHITE;
-        Move computerMove = ai.findBestMove(board, aiColor, aiDepth);
+        // Use a 5-second time limit for the AI to make a move
+        long timeLimitMs = 5000; // 5 seconds
+        Move computerMove = ai.findBestMove(board, aiColor, aiDepth, timeLimitMs);
         if (computerMove != null) {
             board.makeMove(computerMove);
             updateBoard();
@@ -294,12 +298,12 @@ public class ChessGame extends JFrame {
     private void showPossibleMoves(int fromRow, int fromCol) {
         ChessPiece selectedPiece = board.getPiece(fromRow, fromCol);
         if (selectedPiece == null) return;
-        boolean isKing = selectedPiece.type == PieceType.KING;
+        boolean isKing = selectedPiece.getType() == PieceType.KING;
         java.util.HashSet<java.awt.Point> castlingSquares = new java.util.HashSet<>();
 
 
         if (isKing) {
-            if (selectedPiece.color == PieceColor.WHITE && fromRow == 7 && fromCol == 4) {
+            if (selectedPiece.getColor() == PieceColor.WHITE && fromRow == 7 && fromCol == 4) {
                 
                 if (!board.hasWhiteKingMoved() && !board.hasWhiteKingsideRookMoved()) {
                     if (board.getPiece(7, 5) == null && board.getPiece(7, 6) == null) {
@@ -324,7 +328,7 @@ public class ChessGame extends JFrame {
                         }
                     }
                 }
-            } else if (selectedPiece.color == PieceColor.BLACK && fromRow == 0 && fromCol == 4) {
+            } else if (selectedPiece.getColor() == PieceColor.BLACK && fromRow == 0 && fromCol == 4) {
                 
                 if (!board.hasBlackKingMoved() && !board.hasBlackKingsideRookMoved()) {
                     if (board.getPiece(0, 5) == null && board.getPiece(0, 6) == null) {
@@ -363,11 +367,11 @@ public class ChessGame extends JFrame {
                 if (!board.isValidMove(move)) continue;
                 ChessPiece targetPiece = board.getPiece(toRow, toCol);
                 
-                boolean isPawnPromotion = selectedPiece.type == PieceType.PAWN &&
-                    ((selectedPiece.color == PieceColor.WHITE && toRow == 0) ||
-                     (selectedPiece.color == PieceColor.BLACK && toRow == 7));
+                boolean isPawnPromotion = selectedPiece.getType() == PieceType.PAWN &&
+                    ((selectedPiece.getColor() == PieceColor.WHITE && toRow == 0) ||
+                     (selectedPiece.getColor() == PieceColor.BLACK && toRow == 7));
                 
-                boolean isEnPassant = selectedPiece.type == PieceType.PAWN &&
+                boolean isEnPassant = selectedPiece.getType() == PieceType.PAWN &&
                     Math.abs(toCol - fromCol) == 1 &&
                     targetPiece == null &&
                     board.getEnPassantRow() == toRow &&
@@ -411,9 +415,9 @@ public class ChessGame extends JFrame {
             for (int col = 0; col < BOARD_SIZE; col++) {
                 ChessPiece piece = board.getPiece(row, col);
                 if (piece != null) {
-                    squares[row][col].setText(piece.getSymbol());
+                    squares[row][col].setText(String.valueOf(piece.getSymbol()));
                     
-                    if (piece.color == PieceColor.WHITE) {
+                    if (piece.getColor() == PieceColor.WHITE) {
                         squares[row][col].setForeground(Color.WHITE);
                     } else {
                         squares[row][col].setForeground(Color.BLACK);
@@ -446,77 +450,5 @@ public class ChessGame extends JFrame {
     
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> new ChessGame());
-    }
-}
-
-enum PieceColor {
-    WHITE, BLACK
-}
-
-enum PieceType {
-    KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN
-}
-
-class ChessPiece {
-    PieceType type;
-    PieceColor color;
-    
-    public ChessPiece(PieceType type, PieceColor color) {
-        this.type = type;
-        this.color = color;
-    }
-    
-    public String getSymbol() {
-        
-        String symbols = "♚♛♜♝♞♟"; 
-        switch (type) {
-            case KING: return symbols.substring(0, 1);
-            case QUEEN: return symbols.substring(1, 2);
-            case ROOK: return symbols.substring(2, 3);
-            case BISHOP: return symbols.substring(3, 4);
-            case KNIGHT: return symbols.substring(4, 5);
-            case PAWN: return symbols.substring(5, 6);
-            default: return "";
-        }
-    }
-}
-
-class Move {
-    int fromRow, fromCol, toRow, toCol;
-    PieceType promotion; 
-    boolean isEnPassant; 
-
-    public Move(int fromRow, int fromCol, int toRow, int toCol) {
-        this.fromRow = fromRow;
-        this.fromCol = fromCol;
-        this.toRow = toRow;
-        this.toCol = toCol;
-        this.promotion = null; 
-        this.isEnPassant = false; 
-    }
-    
-    public Move(int fromRow, int fromCol, int toRow, int toCol, PieceType promotion) {
-        this.fromRow = fromRow;
-        this.fromCol = fromCol;
-        this.toRow = toRow;
-        this.toCol = toCol;
-        this.promotion = promotion;
-        this.isEnPassant = false; 
-    }
-    
-    public Move(int fromRow, int fromCol, int toRow, int toCol, boolean isEnPassant) {
-        this.fromRow = fromRow;
-        this.fromCol = fromCol;
-        this.toRow = toRow;
-        this.toCol = toCol;
-        this.promotion = null;
-        this.isEnPassant = isEnPassant;
-    }
-
-    @Override
-    public String toString() {
-        return "Move from (" + fromRow + "," + fromCol + ") to (" + toRow + "," + toCol + ")" + 
-               (promotion != null ? " with promotion to " + promotion : "") +
-               (isEnPassant ? " (en passant)" : "");
     }
 }
