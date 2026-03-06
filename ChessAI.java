@@ -1,498 +1,516 @@
-import java.io.*;
 import java.awt.Point;
 import java.util.*;
 
 public class ChessAI {
-    
-    private Map<Long, TranspositionEntry> transpositionTable;
-    private static final int MAX_TABLE_SIZE = 1000000; 
-    
-    
+
+    // Array-based transposition table (fixed size, index by hash)
+    private static final int TT_SIZE = 1 << 20; // ~1M entries
+    private static final int TT_MASK = TT_SIZE - 1;
+    private final TranspositionEntry[] transpositionTable = new TranspositionEntry[TT_SIZE];
+
     private static final int MAX_ITERATIVE_DEPTH = 8;
-    private static final long TIME_LIMIT_MS = 5000; 
-    
+    private static final long TIME_LIMIT_MS = 5000;
+    private boolean timeUp;
+
     public ChessAI() {
-        transpositionTable = new HashMap<>();
     }
-    
+
     public Move findBestMove(ChessBoard board, PieceColor color, int depth) {
-        return findBestMoveBuiltIn(board, color, depth);
-    }
-    
-    private Move findBestMoveBuiltIn(ChessBoard board, PieceColor color, int depth) {
-        
-        if (transpositionTable.size() > MAX_TABLE_SIZE) {
-            transpositionTable.clear();
-        }
-        
-        List<Move> validMoves = board.getAllValidMoves(color);
-        if (validMoves.isEmpty()) return null;
-        
-        Move bestMove = null;
-        int bestScore = Integer.MIN_VALUE;
+        timeUp = false;
         long startTime = System.currentTimeMillis();
-        
-        
+
+        List<Move> validMoves = board.getAllValidMoves(color);
+        if (validMoves.isEmpty())
+            return null;
+
+        // Sort moves initially
+        sortMoves(validMoves, board, color);
+
+        Move bestMove = validMoves.get(0);
+
         int currentDepth = Math.min(depth, MAX_ITERATIVE_DEPTH);
+
         for (int d = 1; d <= currentDepth; d++) {
             Move currentBestMove = null;
             int currentBestScore = Integer.MIN_VALUE;
-            
-            
-            sortMoves(validMoves, board, color);
-            
+
             for (Move move : validMoves) {
-                
                 if (System.currentTimeMillis() - startTime > TIME_LIMIT_MS) {
+                    timeUp = true;
                     break;
                 }
-                
-                
-                ChessBoard tempBoard = board.clone();
-                tempBoard.makeMove(move);
-                
-                
-                int score = alphaBeta(tempBoard, d - 1, Integer.MIN_VALUE, Integer.MAX_VALUE, 
-                                    color == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE, false, startTime);
-                
+
+                ChessBoard.UndoInfo undo = board.makeMove(move);
+                int score = -alphaBeta(board, d - 1, Integer.MIN_VALUE + 1, Integer.MAX_VALUE - 1,
+                        color.opposite(), startTime);
+                board.unmakeMove(move, undo);
+
                 if (score > currentBestScore) {
                     currentBestScore = score;
                     currentBestMove = move;
                 }
             }
-            
-            
+
             if (currentBestMove != null) {
                 bestMove = currentBestMove;
-                bestScore = currentBestScore;
+
+                // Reorder: put best move first for next iteration
+                validMoves.remove(currentBestMove);
+                validMoves.add(0, currentBestMove);
             }
-            
-            
-            if (System.currentTimeMillis() - startTime > TIME_LIMIT_MS) {
+
+            if (timeUp || System.currentTimeMillis() - startTime > TIME_LIMIT_MS)
                 break;
-            }
         }
-        
-        return bestMove != null ? bestMove : validMoves.get(new Random().nextInt(validMoves.size()));
+
+        return bestMove;
     }
-    
+
     private void sortMoves(List<Move> moves, ChessBoard board, PieceColor color) {
-    
         moves.sort((m1, m2) -> {
-            int score1 = estimateMoveValue(m1, board, color);
-            int score2 = estimateMoveValue(m2, board, color);
-            return Integer.compare(score2, score1); 
+            int s1 = estimateMoveValue(m1, board);
+            int s2 = estimateMoveValue(m2, board);
+            return Integer.compare(s2, s1);
         });
     }
-    
-    private int estimateMoveValue(Move move, ChessBoard board, PieceColor color) {
+
+    private int estimateMoveValue(Move move, ChessBoard board) {
         int score = 0;
-        
-        
+
+        // MVV-LVA: Most Valuable Victim - Least Valuable Attacker
         ChessPiece target = board.getPiece(move.toRow, move.toCol);
-        if (target != null) {
-            score += getPieceValue(target.type) * 10;
+        ChessPiece attacker = board.getPiece(move.fromRow, move.fromCol);
+
+        if (target != null && attacker != null) {
+            score += getPieceValue(target.getType()) * 10 - getPieceValue(attacker.getType());
         }
-        
-        
-        ChessPiece piece = board.getPiece(move.fromRow, move.fromCol);
-        if (piece != null && piece.type == PieceType.PAWN) {
-            if (move.toCol >= 2 && move.toCol <= 5) {
-                score += 50;
-            }
+
+        // Promotion bonus
+        if (move.promotion != null) {
+            score += getPieceValue(move.promotion);
         }
-        
-        
-        if (piece != null && piece.type == PieceType.KING) {
-            score -= 100;
+
+        // Center control for pawns
+        if (attacker != null && attacker.getType() == PieceType.PAWN) {
+            if (move.toCol >= 2 && move.toCol <= 5)
+                score += 30;
         }
-        
+
         return score;
     }
-    
-    private int alphaBeta(ChessBoard board, int depth, int alpha, int beta, PieceColor color, boolean maximizing, long startTime) {
-        
+
+    /**
+     * Negamax alpha-beta with transposition table.
+     * Always scores from the perspective of 'color' (the side to move).
+     */
+    private int alphaBeta(ChessBoard board, int depth, int alpha, int beta,
+            PieceColor color, long startTime) {
         if (System.currentTimeMillis() - startTime > TIME_LIMIT_MS) {
-            return 0; 
+            timeUp = true;
+            return 0;
         }
-        
-        
-        long hashKey = generateHashKey(board);
-        
-        
-        TranspositionEntry entry = transpositionTable.get(hashKey);
-        if (entry != null && entry.depth >= depth) {
-            if (entry.flag == TranspositionFlag.EXACT) {
+
+        // Transposition table lookup
+        long hash = board.getZobristHash();
+        int ttIndex = (int) (hash & TT_MASK);
+        TranspositionEntry entry = transpositionTable[ttIndex];
+        if (entry != null && entry.hashKey == hash && entry.depth >= depth) {
+            if (entry.flag == TranspositionFlag.EXACT)
                 return entry.score;
-            } else if (entry.flag == TranspositionFlag.ALPHA && entry.score <= alpha) {
-                return entry.score;
-            } else if (entry.flag == TranspositionFlag.BETA && entry.score >= beta) {
-                return entry.score;
-            }
+            if (entry.flag == TranspositionFlag.ALPHA && entry.score <= alpha)
+                return alpha;
+            if (entry.flag == TranspositionFlag.BETA && entry.score >= beta)
+                return beta;
         }
-        
-        
-        if (depth == 0 || board.isCheckmate(color) || board.isDraw()) {
-            int score = evaluatePosition(board, color);
-            storeTransposition(hashKey, score, depth, TranspositionFlag.EXACT);
-            return score;
-        }
-        
+
+        // Terminal / leaf node
         List<Move> validMoves = board.getAllValidMoves(color);
         if (validMoves.isEmpty()) {
-            int score = evaluatePosition(board, color);
-            storeTransposition(hashKey, score, depth, TranspositionFlag.EXACT);
-            return score;
+            if (board.isKingInCheck(color))
+                return -100000 - depth; // checkmate (deeper = worse for us)
+            return 0; // stalemate
         }
-        
-        int originalAlpha = alpha;
-        int bestScore = maximizing ? Integer.MIN_VALUE : Integer.MAX_VALUE;
-        TranspositionFlag flag = TranspositionFlag.ALPHA;
-        
+
+        if (depth <= 0) {
+            return quiescence(board, alpha, beta, color, startTime, 4);
+        }
+
+        // Sort moves for better pruning
+        sortMoves(validMoves, board, color);
+
+        int origAlpha = alpha;
+        int bestScore = Integer.MIN_VALUE + 1;
+
         for (Move move : validMoves) {
-            ChessBoard tempBoard = board.clone();
-            tempBoard.makeMove(move);
-            
-            int score = alphaBeta(tempBoard, depth - 1, alpha, beta, 
-                                color == PieceColor.WHITE ? PieceColor.BLACK : PieceColor.WHITE, !maximizing, startTime);
-            
-            if (maximizing) {
-                if (score > bestScore) {
-                    bestScore = score;
-                    flag = TranspositionFlag.EXACT;
-                }
-                alpha = Math.max(alpha, score);
-            } else {
-                if (score < bestScore) {
-                    bestScore = score;
-                    flag = TranspositionFlag.EXACT;
-                }
-                beta = Math.min(beta, score);
-            }
-            
-            
-            if (beta <= alpha) {
-                flag = (score <= originalAlpha) ? TranspositionFlag.ALPHA : TranspositionFlag.BETA;
-                break;
-            }
+            ChessBoard.UndoInfo undo = board.makeMove(move);
+            int score = -alphaBeta(board, depth - 1, -beta, -alpha, color.opposite(), startTime);
+            board.unmakeMove(move, undo);
+
+            if (timeUp)
+                return 0;
+
+            if (score > bestScore)
+                bestScore = score;
+            if (score > alpha)
+                alpha = score;
+            if (alpha >= beta)
+                break; // beta cutoff
         }
-        
-        storeTransposition(hashKey, bestScore, depth, flag);
+
+        // Store in transposition table (depth-preferred replacement)
+        TranspositionFlag flag;
+        if (bestScore <= origAlpha)
+            flag = TranspositionFlag.ALPHA;
+        else if (bestScore >= beta)
+            flag = TranspositionFlag.BETA;
+        else
+            flag = TranspositionFlag.EXACT;
+
+        if (entry == null || entry.depth <= depth) {
+            transpositionTable[ttIndex] = new TranspositionEntry(hash, bestScore, depth, flag);
+        }
+
         return bestScore;
     }
-    
-    private long generateHashKey(ChessBoard board) {
-        
-        long hash = 0;
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                ChessPiece piece = board.getPiece(row, col);
-                if (piece != null) {
-                    int pieceIndex = piece.type.ordinal();
-                    int colorIndex = piece.color.ordinal();
-                    hash ^= (pieceIndex + colorIndex * 6) << ((row * 8 + col) % 64);
-                }
+
+    /**
+     * Quiescence search — only search captures to avoid horizon effect.
+     */
+    private int quiescence(ChessBoard board, int alpha, int beta,
+            PieceColor color, long startTime, int maxDepth) {
+        if (timeUp || System.currentTimeMillis() - startTime > TIME_LIMIT_MS) {
+            timeUp = true;
+            return 0;
+        }
+
+        int standPat = evaluatePosition(board, color);
+        if (standPat >= beta)
+            return beta;
+        if (standPat > alpha)
+            alpha = standPat;
+
+        if (maxDepth <= 0)
+            return alpha;
+
+        // Generate only captures
+        List<Move> allMoves = board.getAllValidMoves(color);
+        List<Move> captures = new ArrayList<>();
+        for (Move m : allMoves) {
+            if (board.getPiece(m.toRow, m.toCol) != null || m.isEnPassant || m.promotion != null) {
+                captures.add(m);
             }
         }
-        return hash;
+
+        sortMoves(captures, board, color);
+
+        for (Move move : captures) {
+            ChessBoard.UndoInfo undo = board.makeMove(move);
+            int score = -quiescence(board, -beta, -alpha, color.opposite(), startTime, maxDepth - 1);
+            board.unmakeMove(move, undo);
+
+            if (timeUp)
+                return 0;
+
+            if (score >= beta)
+                return beta;
+            if (score > alpha)
+                alpha = score;
+        }
+
+        return alpha;
     }
-    
-    private void storeTransposition(long hashKey, int score, int depth, TranspositionFlag flag) {
-        transpositionTable.put(hashKey, new TranspositionEntry(score, depth, flag));
-    }
-    
-    
+
+    // ---- Transposition table ----
+
     private static class TranspositionEntry {
+        long hashKey; // full hash key for collision detection
         int score;
         int depth;
         TranspositionFlag flag;
-        
-        TranspositionEntry(int score, int depth, TranspositionFlag flag) {
+
+        TranspositionEntry(long hashKey, int score, int depth, TranspositionFlag flag) {
+            this.hashKey = hashKey;
             this.score = score;
             this.depth = depth;
             this.flag = flag;
         }
     }
-    
+
     private enum TranspositionFlag {
         EXACT, ALPHA, BETA
     }
-    
+
+    // ---- Evaluation ----
+
     private int evaluatePosition(ChessBoard board, PieceColor color) {
         int score = 0;
-        
-    
         score += evaluateMaterial(board, color);
-        
-        
         score += evaluatePositionalScore(board, color);
-        
-        
         score += evaluateKingSafety(board, color);
-        
-        
-        score += evaluateMobility(board, color);
-        
+        score += evaluateMobilityCheap(board, color);
         return score;
     }
-    
+
     private int evaluateMaterial(ChessBoard board, PieceColor color) {
         int score = 0;
-        int opponentScore = 0;
-        
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
                 ChessPiece piece = board.getPiece(row, col);
                 if (piece != null) {
-                    int pieceValue = getPieceValue(piece.type);
-                    if (piece.color == color) {
-                        score += pieceValue;
-                    } else {
-                        opponentScore += pieceValue;
-                    }
+                    int val = getPieceValue(piece.getType());
+                    if (piece.getColor() == color)
+                        score += val;
+                    else
+                        score -= val;
                 }
             }
         }
-        
-        return score - opponentScore;
+        return score;
     }
-    
+
     private int evaluatePositionalScore(ChessBoard board, PieceColor color) {
         int score = 0;
-        
         for (int row = 0; row < 8; row++) {
             for (int col = 0; col < 8; col++) {
                 ChessPiece piece = board.getPiece(row, col);
-                if (piece != null && piece.color == color) {
-                    score += getPositionalBonus(piece, row, col);
+                if (piece != null) {
+                    int bonus = getPositionalBonus(piece, row, col);
+                    if (piece.getColor() == color)
+                        score += bonus;
+                    else
+                        score -= bonus;
                 }
             }
         }
-        
         return score;
     }
-    
+
+    /**
+     * Positional bonus — always returns a POSITIVE value for good positions.
+     * The sign is handled by the caller based on color.
+     */
     private int getPositionalBonus(ChessPiece piece, int row, int col) {
-        int bonus = 0;
-        
-        switch (piece.type) {
+        switch (piece.getType()) {
             case PAWN:
-                bonus = getPawnPositionalBonus(piece.color, row, col);
-                break;
+                return getPawnPositionalBonus(piece.getColor(), row, col);
             case KNIGHT:
-                bonus = getKnightPositionalBonus(row, col);
-                break;
+                return getKnightPositionalBonus(row, col);
             case BISHOP:
-                bonus = getBishopPositionalBonus(row, col);
-                break;
+                return getBishopPositionalBonus(row, col);
             case ROOK:
-                bonus = getRookPositionalBonus(piece.color, row, col);
-                break;
+                return getRookPositionalBonus(piece.getColor(), row, col);
             case QUEEN:
-                bonus = getQueenPositionalBonus(row, col);
-                break;
+                return getQueenPositionalBonus(row, col);
             case KING:
-                bonus = getKingPositionalBonus(piece.color, row, col);
-                break;
+                return getKingPositionalBonus(piece.getColor(), row, col);
+            default:
+                return 0;
         }
-        
-        return piece.color == PieceColor.WHITE ? bonus : -bonus;
     }
-    
+
     private int getPawnPositionalBonus(PieceColor color, int row, int col) {
         int bonus = 0;
-        
-        
-        if (col >= 2 && col <= 5) bonus += 10;
-        
-        
-        if (color == PieceColor.WHITE) {
-            bonus += (7 - row) * 5; 
-        } else {
+        if (col >= 2 && col <= 5)
+            bonus += 10;
+        if (color == PieceColor.WHITE)
+            bonus += (7 - row) * 5;
+        else
             bonus += row * 5;
-        }
-        
         return bonus;
     }
-    
+
     private int getKnightPositionalBonus(int row, int col) {
         int bonus = 0;
-        
-        
-        if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
+        if (row >= 2 && row <= 5 && col >= 2 && col <= 5)
             bonus += 20;
-        }
-        
-        
-        if (row == 0 || row == 7 || col == 0 || col == 7) {
+        if (row == 0 || row == 7 || col == 0 || col == 7)
             bonus -= 10;
-        }
-        
         return bonus;
     }
-    
+
     private int getBishopPositionalBonus(int row, int col) {
         int bonus = 0;
-        
-        
-        if (row == col || row + col == 7) {
+        if (row == col || row + col == 7)
             bonus += 15;
-        }
-        
-        
-        if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
+        if (row >= 2 && row <= 5 && col >= 2 && col <= 5)
             bonus += 10;
-        }
-        
         return bonus;
     }
-    
+
     private int getRookPositionalBonus(PieceColor color, int row, int col) {
         int bonus = 0;
-        
-        
-        if (color == PieceColor.WHITE && row == 1) {
+        if (color == PieceColor.WHITE && row == 1)
             bonus += 15;
-        } else if (color == PieceColor.BLACK && row == 6) {
+        else if (color == PieceColor.BLACK && row == 6)
             bonus += 15;
-        }
-        
         return bonus;
     }
-    
+
     private int getQueenPositionalBonus(int row, int col) {
         int bonus = 0;
-        
-        
-        if (row >= 2 && row <= 5 && col >= 2 && col <= 5) {
+        if (row >= 2 && row <= 5 && col >= 2 && col <= 5)
             bonus += 10;
-        }
-        
-        
-        if (row == 7 || row == 0) {
-            bonus += 5;
-        }
-        
         return bonus;
     }
-    
+
     private int getKingPositionalBonus(PieceColor color, int row, int col) {
         int bonus = 0;
-        
-
         if (color == PieceColor.WHITE) {
-            if (row >= 6) bonus += 20; 
-            if (col >= 2 && col <= 5) bonus += 10; 
+            if (row >= 6)
+                bonus += 20;
+            if (col >= 2 && col <= 5)
+                bonus += 10;
         } else {
-            if (row <= 1) bonus += 20;
-            if (col >= 2 && col <= 5) bonus += 10;
+            if (row <= 1)
+                bonus += 20;
+            if (col >= 2 && col <= 5)
+                bonus += 10;
         }
-        
         return bonus;
     }
-    
+
     private int evaluateKingSafety(ChessBoard board, PieceColor color) {
         int score = 0;
-        
-        
-        Point kingPos = findKing(board, color);
-        if (kingPos == null) return 0;
-        
-        
-        if (isKingUnderAttack(board, color, kingPos)) {
+        Point kingPos = board.findKing(color);
+        if (kingPos == null)
+            return 0;
+
+        if (board.isKingInCheck(color))
             score -= 50;
-        }
-        
-        
+
         score += evaluatePawnShield(board, color, kingPos);
-        
-        
-        score += evaluateKingMobility(board, color, kingPos);
-        
         return score;
     }
-    
-    private Point findKing(ChessBoard board, PieceColor color) {
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                ChessPiece piece = board.getPiece(row, col);
-                if (piece != null && piece.type == PieceType.KING && piece.color == color) {
-                    return new Point(row, col);
-                }
-            }
-        }
-        return null;
-    }
-    
-    private boolean isKingUnderAttack(ChessBoard board, PieceColor color, Point kingPos) {
-        PieceColor opponentColor = (color == PieceColor.WHITE) ? PieceColor.BLACK : PieceColor.WHITE;
-        
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                ChessPiece piece = board.getPiece(row, col);
-                if (piece != null && piece.color == opponentColor) {
-                    Move attackMove = new Move(row, col, kingPos.x, kingPos.y);
-                    if (board.isValidMove(attackMove)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-    
+
     private int evaluatePawnShield(ChessBoard board, PieceColor color, Point kingPos) {
         int score = 0;
         int direction = (color == PieceColor.WHITE) ? -1 : 1;
-        
-        
+        int shieldRow = kingPos.x + direction;
+        if (shieldRow < 0 || shieldRow >= 8)
+            return 0;
+
         for (int col = Math.max(0, kingPos.y - 1); col <= Math.min(7, kingPos.y + 1); col++) {
-            ChessPiece pawn = board.getPiece(kingPos.x + direction, col);
-            if (pawn != null && pawn.type == PieceType.PAWN && pawn.color == color) {
+            ChessPiece pawn = board.getPiece(shieldRow, col);
+            if (pawn != null && pawn.getType() == PieceType.PAWN && pawn.getColor() == color) {
                 score += 10;
             }
         }
-        
         return score;
     }
-    
-    private int evaluateKingMobility(ChessBoard board, PieceColor color, Point kingPos) {
+
+    /**
+     * Cheap mobility estimate — counts pseudo-legal attack squares
+     * without generating full legal moves.
+     */
+    private int evaluateMobilityCheap(ChessBoard board, PieceColor color) {
         int mobility = 0;
-        
-        
-        for (int dr = -1; dr <= 1; dr++) {
-            for (int dc = -1; dc <= 1; dc++) {
-                if (dr == 0 && dc == 0) continue;
-                
-                int newRow = kingPos.x + dr;
-                int newCol = kingPos.y + dc;
-                
-                if (newRow >= 0 && newRow < 8 && newCol >= 0 && newCol < 8) {
-                    Move kingMove = new Move(kingPos.x, kingPos.y, newRow, newCol);
-                    if (board.isValidMove(kingMove)) {
-                        mobility++;
-                    }
-                }
+        int opponentMobility = 0;
+
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                ChessPiece piece = board.getPiece(row, col);
+                if (piece == null)
+                    continue;
+
+                int count = countPseudoLegalMoves(board, piece, row, col);
+                if (piece.getColor() == color)
+                    mobility += count;
+                else
+                    opponentMobility += count;
             }
         }
-        
-        return mobility * 5;
+
+        return (mobility - opponentMobility);
     }
-    
-    private int evaluateMobility(ChessBoard board, PieceColor color) {
-        List<Move> moves = board.getAllValidMoves(color);
-        return moves.size() * 2; 
+
+    private int countPseudoLegalMoves(ChessBoard board, ChessPiece piece, int row, int col) {
+        int count = 0;
+        switch (piece.getType()) {
+            case PAWN: {
+                int dir = piece.getColor() == PieceColor.WHITE ? -1 : 1;
+                int nr = row + dir;
+                if (nr >= 0 && nr < 8) {
+                    if (board.getPiece(nr, col) == null)
+                        count++;
+                    if (col > 0 && board.getPiece(nr, col - 1) != null)
+                        count++;
+                    if (col < 7 && board.getPiece(nr, col + 1) != null)
+                        count++;
+                }
+                break;
+            }
+            case KNIGHT:
+                for (int[] off : new int[][] { { -2, -1 }, { -2, 1 }, { -1, -2 }, { -1, 2 }, { 1, -2 }, { 1, 2 },
+                        { 2, -1 }, { 2, 1 } }) {
+                    int nr = row + off[0], nc = col + off[1];
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        ChessPiece t = board.getPiece(nr, nc);
+                        if (t == null || t.getColor() != piece.getColor())
+                            count++;
+                    }
+                }
+                break;
+            case BISHOP:
+                count = countSlidingMoves(board, piece, row, col,
+                        new int[][] { { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } });
+                break;
+            case ROOK:
+                count = countSlidingMoves(board, piece, row, col,
+                        new int[][] { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } });
+                break;
+            case QUEEN:
+                count = countSlidingMoves(board, piece, row, col, new int[][] { { -1, -1 }, { -1, 0 }, { -1, 1 },
+                        { 0, -1 }, { 0, 1 }, { 1, -1 }, { 1, 0 }, { 1, 1 } });
+                break;
+            case KING:
+                for (int[] off : new int[][] { { -1, -1 }, { -1, 0 }, { -1, 1 }, { 0, -1 }, { 0, 1 }, { 1, -1 },
+                        { 1, 0 }, { 1, 1 } }) {
+                    int nr = row + off[0], nc = col + off[1];
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        ChessPiece t = board.getPiece(nr, nc);
+                        if (t == null || t.getColor() != piece.getColor())
+                            count++;
+                    }
+                }
+                break;
+        }
+        return count;
     }
-    
-    private int getPieceValue(PieceType type) {
+
+    private int countSlidingMoves(ChessBoard board, ChessPiece piece, int row, int col, int[][] dirs) {
+        int count = 0;
+        for (int[] d : dirs) {
+            int nr = row + d[0], nc = col + d[1];
+            while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                ChessPiece t = board.getPiece(nr, nc);
+                if (t != null && t.getColor() == piece.getColor())
+                    break;
+                count++;
+                if (t != null)
+                    break;
+                nr += d[0];
+                nc += d[1];
+            }
+        }
+        return count;
+    }
+
+    public int getPieceValue(PieceType type) {
         switch (type) {
-            case PAWN: return 100;
-            case KNIGHT: return 320;
-            case BISHOP: return 330;
-            case ROOK: return 500;
-            case QUEEN: return 900;
-            case KING: return 20000;
-            default: return 0;
+            case PAWN:
+                return 100;
+            case KNIGHT:
+                return 320;
+            case BISHOP:
+                return 330;
+            case ROOK:
+                return 500;
+            case QUEEN:
+                return 900;
+            case KING:
+                return 20000;
+            default:
+                return 0;
         }
     }
-} 
+}

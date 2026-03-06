@@ -13,46 +13,57 @@ A Java-based chess game featuring a sophisticated AI opponent with advanced sear
 - **Color Selection**: Choose to play as White or Black
 - **One-Time Setup**: Color and difficulty locked once game starts
 - **Castling**: Full castling support (kingside and queenside) with clear visual indicators
-- **Pawn Promotion**: Automatic promotion dialog for human players, AI always promotes to Queen
-- **En Passant**: Full en passant capture implementation with visual state tracking
+- **Pawn Promotion**: Promotion dialog for human players; AI evaluates all promotion options
+- **En Passant**: Full en passant capture implementation with visual indicators
 
 ### AI Features
-- **Alpha-Beta Pruning**: Efficient search tree exploration
-- **Transposition Table**: Caches evaluated positions for performance
-- **Iterative Deepening**: Progressive search with time management
-- **Move Ordering**: Intelligent move prioritization for better pruning
-- **Comprehensive Evaluation**: Material, positional, king safety, and mobility assessment
+- **Negamax Alpha-Beta Pruning**: Efficient search tree exploration using the negamax framework
+- **Zobrist Hashing**: Incrementally-updated position hashing for fast, collision-resistant transposition table lookups
+- **Transposition Table**: Fixed-size array-based cache (~1M entries) with full hash verification and depth-preferred replacement
+- **Iterative Deepening**: Progressive search with time management and best-move-first reordering
+- **Quiescence Search**: Continues searching captures at leaf nodes to avoid the horizon effect
+- **MVV-LVA Move Ordering**: Sorts moves at every search node (Most Valuable Victim – Least Valuable Attacker) for better pruning
+- **Per-Piece Move Generation**: Generates destinations per piece type (ray-casting for sliders, offset tables for knights/kings) instead of brute-forcing all 64 target squares
+- **Make/Unmake Pattern**: Zero-allocation move execution with full state restoration, eliminating deep copies during search
+- **Comprehensive Evaluation**: Material, positional (piece-square tables), king safety (pawn shield, check penalty), and mobility assessment
 
 ## 🏗️ Architecture
 
-### Core Classes
+### File Structure
 
 ```
-├── ChessGame.java      - Main GUI and game controller
-├── ChessBoard.java     - Board representation and game logic
-└── ChessAI.java        - AI engine with advanced algorithms
+chess/
+├── ChessGame.java      # Main GUI and game controller
+├── ChessBoard.java     # Board state, move validation, make/unmake, Zobrist hashing
+├── ChessAI.java        # AI engine: negamax, transposition table, quiescence search
+├── ChessPiece.java     # Immutable piece representation (type + color + symbol)
+├── Move.java           # Move representation (from/to, promotion, en passant flag)
+├── PieceColor.java     # Enum: WHITE, BLACK with opposite() helper
+├── PieceType.java      # Enum: KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN
+└── README.md           # This file
 ```
 
 ### Key Components
 
 #### 1. ChessGame (GUI Controller)
-- Manages the graphical interface
-- Handles user interactions
-- Coordinates game flow
-- Displays game status and controls
-- Manages color selection and game setup
+- Manages the Swing graphical interface
+- Handles user interactions and click-based move input
+- Coordinates game flow between player and AI
+- Displays game status, legal move highlights, and controls
 
 #### 2. ChessBoard (Game Logic)
-- Board state representation
-- Move validation and execution
-- Game state detection (checkmate, draw, etc.)
-- Legal move generation
+- 8×8 array board representation with cached king positions
+- Per-piece legal move generation (pawn, knight, sliding, king)
+- Make/unmake move pattern with `UndoInfo` for zero-allocation search
+- Zobrist hash maintained incrementally across make/unmake
+- Full rule enforcement: castling, en passant, promotion, check/checkmate/stalemate/draw
 
 #### 3. ChessAI (AI Engine)
-- Advanced search algorithms
-- Position evaluation
-- Move selection and optimization
-- Performance monitoring
+- Negamax alpha-beta search with iterative deepening
+- Array-based transposition table with full hash key verification
+- Quiescence search for captures at leaf nodes
+- MVV-LVA move ordering at every node
+- Multi-factor evaluation: material, piece-square bonuses, king safety, mobility
 
 ## 🔄 Game Flow
 
@@ -70,7 +81,7 @@ flowchart TD
     H --> J[Validate Move]
     J -->|Invalid| H
     J -->|Valid| K[Execute Move]
-    I --> L[Alpha-Beta Search]
+    I --> L[Negamax Alpha-Beta Search]
     L --> M[Select Best Move]
     M --> K
     K --> N[Update Board]
@@ -85,84 +96,76 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[Find Best Move] --> B[Clear Large Transposition Table]
-    B --> C[Get Valid Moves]
+    A[Find Best Move] --> C[Get Valid Moves]
     C --> D[Start Iterative Deepening]
     D --> E[Set Current Depth = 1]
-    E --> F[Sort Moves by Priority]
+    E --> F[Sort Moves MVV-LVA]
     F --> G[Check Time Limit]
     G -->|Time Up| H[Return Best Move]
-    G -->|Time OK| I[Make Temporary Move]
-    I --> J[Alpha-Beta Search]
+    G -->|Time OK| I[Make Move on Board]
+    I --> J[Negamax Alpha-Beta]
     J --> K[Check Transposition Table]
     K -->|Hit| L[Return Cached Score]
-    K -->|Miss| M{Terminal Node?}
-    M -->|Yes| N[Evaluate Position]
-    M -->|No| O[Generate Moves]
-    N --> P[Store in Transposition Table]
-    P --> Q[Return Score]
-    O --> R[Recursive Alpha-Beta]
+    K -->|Miss| M{Terminal / Depth 0?}
+    M -->|Depth 0| Q[Quiescence Search: Captures Only]
+    M -->|Terminal| N[Score: Checkmate or Stalemate]
+    M -->|No| O[Generate & Sort Moves]
+    Q --> P[Store in Transposition Table]
+    N --> P
+    O --> R[Recursive Negamax]
     R --> S[Alpha-Beta Pruning]
     S -->|Prune| T[Skip Remaining Moves]
     S -->|Continue| U[Update Best Score]
     T --> V[Store Result]
     U --> V
     V --> W[Return Score]
-    L --> X[Update Best Move]
+    L --> X[Unmake Move]
     W --> X
+    P --> X
     X --> Y{More Moves?}
     Y -->|Yes| I
     Y -->|No| Z{More Depth?}
-    Z -->|Yes| AA[Increment Depth]
+    Z -->|Yes| AA[Increment Depth + Reorder Best First]
     AA --> F
     Z -->|No| H
 ```
 
-## 🔍 Alpha-Beta Pruning
+## 🔍 Negamax Alpha-Beta
 
 ```mermaid
 flowchart TD
-    A[Start Alpha-Beta] --> B[Initialize Alpha = -inf, Beta = +inf]
-    B --> C[Generate Moves]
-    C --> D[Sort Moves by Priority]
-    D --> E[Make Move]
-    E --> F[Recursive Call]
-    F --> G{Maximizing Player?}
-    G -->|Yes| H[Update Alpha]
-    G -->|No| I[Update Beta]
-    H --> J[Alpha = max Alpha Score]
-    I --> K[Beta = min Beta Score]
-    J --> L{Beta <= Alpha?}
-    K --> L
-    L -->|Yes| M[Prune Branch]
-    L -->|No| N{More Moves?}
-    M --> O[Return Current Best]
-    N -->|Yes| E
-    N -->|No| P[Return Best Score]
-    O --> Q[End Search]
-    P --> Q
-```
-
-## 📊 Transposition Table
-
-```mermaid
-flowchart TD
-    A[Generate Hash Key] --> B[Check Table]
-    B --> C{Entry Found?}
-    C -->|Yes| D{Depth Sufficient?}
-    C -->|No| E[Evaluate Position]
-    D -->|Yes| F{Flag Type?}
-    D -->|No| E
-    F -->|EXACT| G[Return Cached Score]
-    F -->|ALPHA| H{Score <= Alpha?}
-    F -->|BETA| I{Score >= Beta?}
-    H -->|Yes| G
-    H -->|No| E
-    I -->|Yes| G
-    I -->|No| E
-    E --> J[Store New Entry]
-    J --> K[Return Score]
-    G --> L[Use Cached Result]
+    A["alphaBeta(board, depth, α, β, color)"] --> B{Time Up?}
+    B -->|Yes| C[Return 0]
+    B -->|No| D[Lookup Transposition Table]
+    D --> E{TT Hit with depth ≥ current?}
+    E -->|EXACT| F[Return cached score]
+    E -->|ALPHA and score ≤ α| F
+    E -->|BETA and score ≥ β| F
+    E -->|No useful hit| G[Generate Legal Moves]
+    G --> H{No moves?}
+    H -->|In Check| I["Return −100000 − depth (Checkmate)"]
+    H -->|Not in Check| J[Return 0 - Stalemate]
+    H -->|Has Moves| K{Depth ≤ 0?}
+    K -->|Yes| L[Quiescence Search - Captures Only]
+    K -->|No| M[Sort Moves - MVV-LVA]
+    M --> N[bestScore = −∞]
+    N --> O[For each move]
+    O --> P[board.makeMove]
+    P --> Q["score = −alphaBeta(board, depth−1, −β, −α, opponent)"]
+    Q --> R[board.unmakeMove]
+    R --> S{score > bestScore?}
+    S -->|Yes| T[bestScore = score]
+    S -->|No| U{More moves?}
+    T --> V{score > α?}
+    V -->|Yes| W[α = score]
+    V -->|No| U
+    W --> X{α ≥ β?}
+    X -->|Yes| Y[Beta Cutoff — Prune]
+    X -->|No| U
+    U -->|Yes| O
+    U -->|No| Z[Store in Transposition Table]
+    Y --> Z
+    Z --> AA[Return bestScore]
 ```
 
 ## 🎯 Position Evaluation
@@ -170,55 +173,79 @@ flowchart TD
 The AI evaluates positions using multiple factors:
 
 ### Material Evaluation
-- **Pawn**: 100 points
-- **Knight**: 320 points
-- **Bishop**: 330 points
-- **Rook**: 500 points
-- **Queen**: 900 points
-- **King**: 20,000 points
+| Piece | Value |
+|-------|-------|
+| Pawn | 100 |
+| Knight | 320 |
+| Bishop | 330 |
+| Rook | 500 |
+| Queen | 900 |
+| King | 20,000 |
 
 ### Positional Bonuses
 - **Pawns**: Center control (+10), advancement (+5 per rank)
 - **Knights**: Center control (+20), edge penalty (-10)
 - **Bishops**: Long diagonals (+15), center control (+10)
 - **Rooks**: Seventh rank attack (+15)
-- **Queens**: Center control (+10), early development (+5)
-- **Kings**: Safety (+20), center files (+10)
+- **Queens**: Center control (+10)
+- **Kings**: Safety near back rank (+20), center files (+10)
 
 ### Additional Factors
-- **King Safety**: Attack detection (-50), pawn shield (+10), mobility (+5 per move)
-- **Mobility**: Legal moves bonus (+2 per move)
+- **King Safety**: Check penalty (-50), pawn shield (+10 per shielding pawn)
+- **Mobility**: Pseudo-legal move count difference (own vs opponent)
 
 ## 🚀 Performance Optimizations
 
-### 1. Alpha-Beta Pruning
-- Reduces search space by eliminating irrelevant branches
-- Typical reduction: 50-90% fewer nodes evaluated
+### 1. Negamax Alpha-Beta Pruning
+- Reduces search space by eliminating branches that can't affect the result
+- Cleaner than separate min/max — single recursive call with sign negation
+- Typical reduction: 50–90% fewer nodes evaluated
 
-### 2. Transposition Table
-- Caches evaluated positions to avoid re-computation
-- Memory-efficient with size limits and cleanup
+### 2. Zobrist Hashing & Transposition Table
+- `long[2][6][64]` random number table initialized at class load
+- Hash incrementally updated in make/unmake — no recomputation
+- Fixed-size array table (~1M entries) indexed by `hash & mask`
+- Full hash key stored per entry to detect collisions
+- Depth-preferred replacement scheme
 
-### 3. Iterative Deepening
-- Starts with shallow searches and progressively deepens
-- Provides good moves quickly while allowing time for deeper analysis
-- Respects time limits for responsive gameplay
+### 3. Quiescence Search
+- At depth 0, continues searching capture moves only (up to 4 plies)
+- Prevents the **horizon effect** — AI won't miss recaptures just past its search depth
+- Stand-pat evaluation allows early cutoff when position is already good
 
-### 4. Move Ordering
-- Prioritizes promising moves (captures, center control)
-- Improves pruning efficiency by exploring good moves first
+### 4. Make/Unmake Pattern
+- `makeMove()` returns `UndoInfo` capturing all prior state
+- `unmakeMove()` restores the board perfectly — zero object allocation per node
+- Eliminates millions of `board.clone()` calls and GC pressure during deep searches
 
-### 5. Time Management
+### 5. Per-Piece Move Generation
+- Pawns: 2–4 candidate squares instead of 64
+- Knights: exactly 8 offset checks
+- Sliding pieces: ray-cast until blocked
+- ~10–50× fewer candidates than brute-force 64² scanning
+
+### 6. Iterative Deepening with Move Reordering
+- Starts shallow, progressively deepens within time limit
+- Best move from previous iteration searched first in next iteration
+- Provides good moves quickly while allowing deeper analysis
+
+### 7. MVV-LVA Move Ordering
+- Captures sorted by Most Valuable Victim – Least Valuable Attacker
+- Applied at every node in the search tree, not just the root
+- Dramatically improves alpha-beta cutoff rates
+
+### 8. Time Management
 - 5-second time limit per move
-- Graceful degradation when time runs out
+- Checked at every node — graceful degradation when time runs out
 
 ## 🎮 How to Play
 
 ### Starting the Game
-1. **Run** `ChessGame.java`
-2. **Choose Color**: Select "White" or "Black" from the dropdown
-3. **Choose Difficulty**: Select from Easy (1) to Master (5)
-4. **Click "Start Game"**: Begin the chess match
+1. **Compile**: `javac *.java`
+2. **Run**: `java ChessGame`
+3. **Choose Color**: Select "White" or "Black" from the dropdown
+4. **Choose Difficulty**: Select from Easy (1) to Master (5)
+5. **Click "Start Game"**: Begin the chess match
 
 ### Color Selection
 - **White**: Play as White pieces (bottom), move first (traditional)
@@ -231,96 +258,39 @@ The AI evaluates positions using multiple factors:
    - 🟢 Green: Regular moves
    - 🔴 Red: Capture moves
    - 🔵 Blue: Castling moves
+   - 🟡 Gold: Pawn promotion moves
+   - 🟠 Orange: En passant captures
 3. **Click** on a highlighted square to make the move
 
 ### Special Moves
 
-#### **Castling**
-Castling is a special move that allows you to move your king and rook simultaneously:
+#### Castling
+- **Kingside (O-O)**: King moves 2 squares toward h-file; rook jumps to other side
+- **Queenside (O-O-O)**: King moves 2 squares toward a-file; rook jumps to other side
+- **Requirements**: Neither king nor rook has moved, no pieces between them, king not in/through check
 
-**Kingside Castling (O-O)**
-- Move king from e1 to g1 (White) or e8 to g8 (Black)
-- Rook moves from h1 to f1 (White) or h8 to f8 (Black)
-- **Requirements**: King and kingside rook must not have moved, no pieces between them, king not in check
+#### Pawn Promotion
+When a pawn reaches the back rank, a dialog lets you choose: Queen, Rook, Bishop, or Knight.
 
-**Queenside Castling (O-O-O)**
-- Move king from e1 to c1 (White) or e8 to c8 (Black)
-- Rook moves from a1 to d1 (White) or a8 to d8 (Black)
-- **Requirements**: King and queenside rook must not have moved, no pieces between them, king not in check
-
-**Castling Rules**
-- King must not be in check
-- King must not pass through check
-- King and rook must be on their original squares
-- No pieces between king and rook
-- King and rook must not have moved previously
-
-#### **Pawn Promotion**
-When a pawn reaches the opposite end of the board, it must be promoted to a more powerful piece:
-
-**Human Players**
-- A dialog appears allowing you to choose: Knight, Bishop, or Queen
-- Click on your desired piece to complete the promotion
-- **Note**: Rook promotion is not available (standard chess rule)
-
-**AI Players**
-- AI automatically promotes pawns to Queens (strongest piece)
-- No dialog interruption during AI moves
-
-#### **En Passant**
-En passant is a special pawn capture that can occur when a pawn moves two squares forward:
-
-**How It Works**
-- When a pawn moves two squares forward (from starting position)
-- An opponent's pawn on an adjacent file can capture it "en passant"
-- The capture is made as if the pawn had only moved one square
-- This opportunity is only available on the very next move
-
-**Visual Indicators**
-- En passant opportunities are highlighted with red squares
-- The captured pawn is automatically removed from the board
-- Debug information shows en passant state for troubleshooting
-
-**Example Scenario**
-1. White pawn on e2 moves to e4
-2. Black pawn on d4 can capture en passant by moving to e3
-3. White pawn on e4 is removed from the board
-4. Black pawn now occupies e3
+#### En Passant
+When a pawn advances two squares past an enemy pawn, the enemy can capture it on the next move as if it had only moved one square. Highlighted in orange.
 
 ### Difficulty Levels
-- **Easy (1)**: Depth 1 - Good for beginners
-- **Medium (2)**: Depth 2 - Balanced challenge
-- **Hard (3)**: Depth 3 - Default setting
-- **Expert (4)**: Depth 4 - Advanced play
-- **Master (5)**: Depth 5 - Maximum challenge
-
-### Game Controls
-- **Start Game**: Begin the match with current settings
-- **New Game**: Reset to setup phase for new choices
-- **Settings Locked**: Color and difficulty cannot be changed during gameplay
-
-## 📁 File Structure
-
-```
-chess/
-├── ChessGame.java      # Main game interface
-├── ChessBoard.java     # Board logic and rules
-├── ChessAI.java        # AI engine
-└── README.md           # This file
-```
+| Level | Depth | Description |
+|-------|-------|-------------|
+| Easy (1) | 1 | Good for beginners |
+| Medium (2) | 2 | Balanced challenge |
+| Hard (3) | 3 | Default setting |
+| Expert (4) | 4 | Advanced play |
+| Master (5) | 5 | Maximum challenge |
 
 ## 🔧 Technical Details
 
 ### Search Algorithm
-- **Algorithm**: Minimax with Alpha-Beta pruning
-- **Search Depth**: 1-5 plies (configurable)
+- **Algorithm**: Negamax with Alpha-Beta pruning + Quiescence search
+- **Search Depth**: 1–5 plies (configurable) with iterative deepening up to 8
 - **Time Limit**: 5 seconds per move
-- **Memory Management**: 1M entry transposition table limit
-
-### Performance Characteristics
-- **Typical Move Time**: 1-3 seconds
-- **Memory Usage**: ~50-100MB
-- **Search Efficiency**: 10,000-100,000 nodes/second
+- **Transposition Table**: ~1M entry fixed-size array with Zobrist hashing
 
 ### Compatibility
 - **Java Version**: 8 or higher
@@ -331,17 +301,17 @@ chess/
 
 ### Potential Improvements
 1. **Opening Book**: Pre-computed opening moves
-2. **Endgame Database**: Specialized endgame evaluation
+2. **Endgame Tables**: Specialized endgame evaluation
 3. **Multi-threading**: Parallel search for better performance
 4. **Network Play**: Player vs Player over network
 5. **Move History**: Game replay and analysis features
 6. **Custom Themes**: Different board and piece styles
 
 ### AI Enhancements
-1. **Neural Network**: Machine learning-based evaluation
-2. **Monte Carlo Tree Search**: Alternative search algorithm
-3. **Quiescence Search**: Tactical position analysis
-4. **Null Move Pruning**: Additional pruning technique
+1. **Null Move Pruning**: Additional pruning technique
+2. **Late Move Reductions**: Reduce depth for unlikely moves
+3. **Killer Move Heuristic**: Remember refutation moves
+4. **Aspiration Windows**: Narrow alpha-beta window for iterative deepening
 
 ## 🤝 Contributing
 
@@ -350,4 +320,4 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 ---
 
 ## Author
-John Morfidis 
+John Morfidis
